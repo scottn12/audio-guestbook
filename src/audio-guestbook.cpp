@@ -21,6 +21,7 @@
  *
  */
 
+#include <Arduino.h>
 #include <Bounce.h>
 #include <Audio.h>
 #include <Wire.h>
@@ -95,10 +96,6 @@ unsigned long recByteSaved = 0L;
 unsigned long NumSamples = 0L;
 byte byte1, byte2, byte3, byte4;
 
-unsigned int currentPlaybackFile = 0;
-
-bool playing = false;
-
 void setup()
 {
 
@@ -123,7 +120,7 @@ void setup()
   // Define which input on the audio shield to use (AUDIO_INPUT_LINEIN / AUDIO_INPUT_MIC)
   sgtl5000_1.inputSelect(AUDIO_INPUT_MIC);
   // sgtl5000_1.adcHighPassFilterDisable(); //
-  sgtl5000_1.volume(0.6);
+  sgtl5000_1.volume(0.95);
 
   mixer.gain(0, 1.0f);
   mixer.gain(1, 1.0f);
@@ -187,19 +184,19 @@ void loop()
     if (buttonRecord.fallingEdge())
     {
       Serial.println("Handset lifted");
-      // mode = Mode::Prompting; print_mode();
-      playAllRecordings();
+      mode = Mode::Prompting;
+      print_mode();
+    }
+    else if (buttonPlay.fallingEdge())
+    {
+      // playAllRecordings();
+      playLastRecording();
     }
     break;
 
   case Mode::Prompting:
     // Wait a second for users to put the handset to their ear
     wait(1000);
-    // Check if we are in ready mode - if so the headset was replaced while waiting
-    if (mode == Mode::Ready)
-    {
-      return;
-    }
     // Play the greeting inviting them to record their message
     playWav1.play("greeting.wav");
     // Wait until the  message has finished playing
@@ -221,7 +218,7 @@ void loop()
       {
         playWav1.stop();
         // playAllRecordings();
-        //  playLastRecording();
+        playLastRecording();
         return;
       }
     }
@@ -253,7 +250,6 @@ void loop()
     break;
 
   case Mode::Playing: // to make compiler happy
-    playAllRecordings();
     break;
 
   case Mode::Initialising: // to make compiler happy
@@ -379,65 +375,102 @@ void stopRecording()
 
 void playAllRecordings()
 {
-  if (playing)
-  {
-    // Prevent re-entry
-    return;
-  }
-  playing = true;
-  mode = Mode::Playing;
-  print_mode();
   // Recording files are saved in the root directory
   File dir = SD.open("/");
-
-  // Wait a little bit longer when playing the first message
-  // wait(750);
 
   while (true)
   {
     File entry = dir.openNextFile();
-
-    // Reset back to 0 if we reach file 37 (does not exist)
-    if (currentPlaybackFile == 37)
+    if (strstr(entry.name(), "greeting"))
     {
-      currentPlaybackFile = 0;
+      entry = dir.openNextFile();
     }
-
-    // Play a short beep before each message, wait 750ms before/after the beep
-    wait(750);
-    waveform1.amplitude(beep_volume);
-    wait(750);
-    waveform1.amplitude(0);
-
-    // Check if we are in ready mode - if so the headset was replaced while waiting
-    if (mode == Mode::Ready)
+    if (!entry)
     {
-      playing = false;
-      return;
+      // no more files
+      entry.close();
+      end_Beep();
+      break;
     }
+    // int8_t len = strlen(entry.name()) - 4;
+    //     if (strstr(strlwr(entry.name() + (len - 4)), ".raw")) {
+    //     if (strstr(strlwr(entry.name() + (len - 4)), ".wav")) {
+    //  the lines above throw a warning, so I replace them with this (which is also easier to read):
+    if (strstr(entry.name(), ".wav") || strstr(entry.name(), ".WAV"))
+    {
+      Serial.print("Now playing ");
+      Serial.println(entry.name());
+      // Play a short beep before each message
+      waveform1.amplitude(beep_volume);
+      wait(750);
+      waveform1.amplitude(0);
+      // Play the file
+      playWav1.play(entry.name());
+      mode = Mode::Playing;
+      print_mode();
+    }
+    entry.close();
 
-    // Get current playback file
-    snprintf(filename, 11, " %05d.wav", currentPlaybackFile);
-    Serial.println(filename);
-    playWav1.play(filename);
+    //    while (playWav1.isPlaying()) { // strangely enough, this works for playRaw, but it does not work properly for playWav
     while (!playWav1.isStopped())
     { // this works for playWav
+      buttonPlay.update();
       buttonRecord.update();
-      // Headeset is replaced - stop playing and incerement the counter
-      if (buttonRecord.risingEdge())
+      // Button is pressed again
+      //      if(buttonPlay.risingEdge() || buttonRecord.risingEdge()) { // FIX
+      if (buttonPlay.fallingEdge() || buttonRecord.risingEdge())
       {
         playWav1.stop();
-        currentPlaybackFile++;
         mode = Mode::Ready;
         print_mode();
-        playing = false;
         return;
       }
     }
-
-    // Increment playback file counter
-    currentPlaybackFile++;
   }
+  // All files have been played
+  mode = Mode::Ready;
+  print_mode();
+}
+
+void playLastRecording()
+{
+  // Find the first available file number
+  uint16_t idx = 0;
+  for (uint16_t i = 0; i < 9999; i++)
+  {
+    // Format the counter as a five-digit number with leading zeroes, followed by file extension
+    snprintf(filename, 11, " %05d.wav", i);
+    // check, if file with index i exists
+    if (!SD.exists(filename))
+    {
+      idx = i - 1;
+      break;
+    }
+  }
+  // now play file with index idx == last recorded file
+  snprintf(filename, 11, " %05d.wav", idx);
+  Serial.println(filename);
+  playWav1.play(filename);
+  mode = Mode::Playing;
+  print_mode();
+  while (!playWav1.isStopped())
+  { // this works for playWav
+    buttonPlay.update();
+    buttonRecord.update();
+    // Button is pressed again
+    //      if(buttonPlay.risingEdge() || buttonRecord.risingEdge()) { // FIX
+    if (buttonPlay.fallingEdge() || buttonRecord.risingEdge())
+    {
+      playWav1.stop();
+      mode = Mode::Ready;
+      print_mode();
+      return;
+    }
+  }
+  // file has been played
+  mode = Mode::Ready;
+  print_mode();
+  end_Beep();
 }
 
 // Retrieve the current time from Teensy built-in RTC
@@ -471,17 +504,13 @@ void wait(unsigned int milliseconds)
     buttonRecord.update();
     buttonPlay.update();
     if (buttonRecord.fallingEdge())
-    {
       Serial.println("Button (pin 0) Press");
-      mode = Mode::Playing;
-      print_mode();
-    }
+    if (buttonPlay.fallingEdge())
+      Serial.println("Button (pin 1) Press");
     if (buttonRecord.risingEdge())
-    {
       Serial.println("Button (pin 0) Release");
-      mode = Mode::Ready;
-      print_mode();
-    }
+    if (buttonPlay.risingEdge())
+      Serial.println("Button (pin 1) Release");
   }
 }
 
