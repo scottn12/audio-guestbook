@@ -196,7 +196,8 @@ void loop()
   case Mode::Prompting:
     // Wait a second for users to put the handset to their ear
     wait(1000);
-    // Check if we are in ready mode - if so the headset was replaced while waiting
+    // Check if we are in ready mode. If so the headset was replaced
+    // while waiting and we should re-enter the state machine
     if (mode == Mode::Ready)
     {
       return;
@@ -204,7 +205,6 @@ void loop()
     // Play the greeting inviting them to record their message
     playWav1.play("greeting.wav");
     // Wait until the  message has finished playing
-    //      while (playWav1.isPlaying()) {
     while (!playWav1.isStopped())
     {
       // Check whether the handset is replaced
@@ -463,10 +463,11 @@ void dateTime(uint16_t *date, uint16_t *time, uint8_t *ms10)
 
 // Non-blocking delay, which pauses execution of main program logic,
 // but while still listening for input
-void wait(unsigned int milliseconds)
+// Returns true if an input was recorded while waiting, false otherwise
+boolean wait(unsigned int milliseconds)
 {
   elapsedMillis msec = 0;
-
+  boolean rtnVal = false;
   while (msec <= milliseconds)
   {
     buttonRecord.update();
@@ -476,14 +477,17 @@ void wait(unsigned int milliseconds)
       Serial.println("Button (pin 0) Press");
       mode = Mode::Playing;
       print_mode();
+      rtnVal = true;
     }
     if (buttonRecord.risingEdge())
     {
       Serial.println("Button (pin 0) Release");
       mode = Mode::Ready;
       print_mode();
+      rtnVal = true;
     }
   }
+  return rtnVal;
 }
 
 void writeOutHeader()

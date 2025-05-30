@@ -193,11 +193,16 @@ void loop()
 
   case Mode::Prompting:
     // Wait a second for users to put the handset to their ear
-    wait(1000);
+    boolean isInterrupted = wait(1000);
+    // If there was an input while record we should re-enter \
+    // the state machine
+    if (isInterrupted)
+    {
+      return;
+    }
     // Play the greeting inviting them to record their message
     playWav1.play("greeting.wav");
     // Wait until the  message has finished playing
-    //      while (playWav1.isPlaying()) {
     while (!playWav1.isStopped())
     {
       // Check whether the handset is replaced
@@ -215,7 +220,7 @@ void loop()
       {
         playWav1.stop();
         // playAllRecordings();
-        playLastRecording();
+        // playLastRecording();
         return;
       }
     }
@@ -238,6 +243,7 @@ void loop()
       // Stop recording
       stopRecording();
       // Play audio tone to confirm recording has ended
+      // TODO: Should we play beep?
       end_Beep();
     }
     else
@@ -492,24 +498,31 @@ void dateTime(uint16_t *date, uint16_t *time, uint8_t *ms10)
 
 // Non-blocking delay, which pauses execution of main program logic,
 // but while still listening for input
-// TODO: May have to update this
-void wait(unsigned int milliseconds)
+// Returns true if an input was recorded while waiting, false otherwise
+boolean wait(unsigned int milliseconds)
 {
   elapsedMillis msec = 0;
-
+  boolean rtnVal = false;
   while (msec <= milliseconds)
   {
     buttonRecord.update();
     buttonPlay.update();
     if (buttonRecord.fallingEdge())
+    {
       Serial.println("Button (pin 0) Press");
-    if (buttonPlay.fallingEdge())
-      Serial.println("Button (pin 1) Press");
+      mode = Mode::Playing;
+      print_mode();
+      rtnVal = true;
+    }
     if (buttonRecord.risingEdge())
+    {
       Serial.println("Button (pin 0) Release");
-    if (buttonPlay.risingEdge())
-      Serial.println("Button (pin 1) Release");
+      mode = Mode::Ready;
+      print_mode();
+      rtnVal = true;
+    }
   }
+  return rtnVal;
 }
 
 void writeOutHeader()
