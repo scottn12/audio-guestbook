@@ -294,7 +294,7 @@ void startRecording() {
     Serial.println("Entered Recording mode while RECORD_MODE = false");
     mode = Mode::Ready;
     print_mode();
-    break;
+    return;
   }
   
   setMTPdeviceChecks(false);  // disable MTP device checks while recording
