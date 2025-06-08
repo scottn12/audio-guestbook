@@ -44,12 +44,14 @@
 
 #define noINSTRUMENT_SD_WRITE
 
-// Modes the program is running in
+// Configurations for how the program will run
 #define DEBUG_MODE true
 // Defines if we are in "record" or "playback" mode.
 // If true, we will only record when the headset is lifted.
 // If false, we will only playback when the headset is lifted.
 #define RECORD_MODE true
+#define OVERALL_VOLUME 0.60
+#define BEEP_VOLUME 0.10f
 
 // GLOBALS
 // Audio initialisation code can be generated using the GUI interface at https://www.pjrc.com/teensy/gui/
@@ -85,7 +87,7 @@ enum Mode {
 };
 Mode mode = Mode::Initialising;
 
-float beep_volume = 0.04f;  // not too loud :-)
+float beep_volume = BEEP_VOLUME;
 
 uint32_t MTPcheckInterval;  // default value of device check interval [ms]
 
@@ -103,6 +105,9 @@ unsigned long recByteSaved = 0L;
 unsigned long NumSamples = 0L;
 byte byte1, byte2, byte3, byte4;
 
+// Manage playback
+bool playing = false;
+
 void setup() {
 
   Serial.begin(9600);
@@ -112,6 +117,18 @@ void setup() {
   Serial.println("Serial set up correctly");
   Serial.printf("Audio block set to %d samples\n", AUDIO_BLOCK_SAMPLES);
   print_mode();
+
+  // Display configs
+  Serial.println("Initialised with:");
+  Serial.print("  RECORD_MODE   : ");
+  Serial.println(RECORD_MODE ? "true" : "false");
+  Serial.print("  DEBUG_MODE    : ");
+  Serial.println(DEBUG_MODE ? "true" : "false");
+  Serial.print("  OVERALL_VOLUME: ");
+  Serial.println(OVERALL_VOLUME, 2);
+  Serial.print("  BEEP_VOLUME   : ");
+  Serial.println(BEEP_VOLUME, 2);
+
   // Configure the input pins
   pinMode(HOOK_PIN, INPUT_PULLUP);
   // pinMode(PLAYBACK_BUTTON_PIN, INPUT_PULLUP);
@@ -125,7 +142,7 @@ void setup() {
   // Define which input on the audio shield to use (AUDIO_INPUT_LINEIN / AUDIO_INPUT_MIC)
   sgtl5000_1.inputSelect(AUDIO_INPUT_MIC);
   // sgtl5000_1.adcHighPassFilterDisable(); //
-  sgtl5000_1.volume(0.95);
+  sgtl5000_1.volume(OVERALL_VOLUME);
 
   mixer.gain(0, 1.0f);
   mixer.gain(1, 1.0f);
@@ -153,7 +170,7 @@ void setup() {
 
   // Add SD Card
   //    MTP.addFilesystem(SD, "SD Card");
-  MTP.addFilesystem(SD, "N&S Audio guestbook");  // choose a nice name for the SD card volume to appear in your file explorer
+  MTP.addFilesystem(SD, "N&S Audio Guestbook");  // choose a nice name for the SD card volume to appear in your file explorer
   Serial.println("Added SD card via MTP");
   MTPcheckInterval = MTP.storage()->get_DeltaDeviceCheckTimeMS();
 
@@ -179,19 +196,22 @@ void loop() {
 
   switch (mode) {
     case Mode::Ready:
-      // Falling edge occurs when the handset is lifted --> 611 telephone
-      if (hookSwitch.fallingEdge()) {
-        Serial.println("Handset lifted");
-        // If we are in Record Mode then we will enter the state machine and start prompting
-        // Otherwise, we are in Playback Mode and will play all recordings
-        if (RECORD_MODE) {
-          mode = Mode::Prompting;
-          print_mode();
-        } else {
-          playAllRecordings();
+      {
+        // Falling edge occurs when the handset is lifted --> 611 telephone
+        // Note - You may need to swap all risingEdge()/fallingEdge() calls depending on your phone.
+        if (hookSwitch.risingEdge()) {
+          Serial.println("Handset lifted");
+          // If we are in Record Mode then we will enter the state machine and start prompting
+          // Otherwise, we are in Playback Mode and will play all recordings
+          if (RECORD_MODE) {
+            mode = Mode::Prompting;
+            print_mode();
+          } else {
+            playAllRecordings();
+          }
         }
+        break;
       }
-      break;
 
     case Mode::Prompting:
       {
@@ -200,7 +220,7 @@ void loop() {
           Serial.println("Entered Prompting mode while RECORD_MODE = false");
           mode = Mode::Ready;
           print_mode();
-          break;
+          return;
         }
 
         // Wait a second for users to put the handset to their ear
@@ -208,7 +228,7 @@ void loop() {
         // If there was an input while record we should re-enter
         // the state machine
         if (isInterrupted) {
-          break;
+          return;
         }
 
         // Play the greeting inviting them to record their message
@@ -218,11 +238,11 @@ void loop() {
           // Check whether the handset is replaced
           hookSwitch.update();
           // Handset is replaced
-          if (hookSwitch.risingEdge()) {
+          if (hookSwitch.fallingEdge()) {
             playWav1.stop();
             mode = Mode::Ready;
             print_mode();
-            break;
+            return;
           }
         }
         // Debug message
@@ -243,18 +263,15 @@ void loop() {
           Serial.println("Entered Recording mode while RECORD_MODE = false");
           mode = Mode::Ready;
           print_mode();
-          break;
+          return;
         }
 
         // Handset is replaced
-        if (hookSwitch.risingEdge()) {
+        if (hookSwitch.fallingEdge()) {
           // Debug log
           Serial.println("Stopping Recording");
           // Stop recording
           stopRecording();
-          // Play audio tone to confirm recording has ended
-          // TODO: Should we play beep?
-          end_Beep();
         } else {
           continueRecording();
         }
@@ -296,7 +313,7 @@ void startRecording() {
     print_mode();
     return;
   }
-  
+
   setMTPdeviceChecks(false);  // disable MTP device checks while recording
 #if defined(INSTRUMENT_SD_WRITE)
   worstSDwrite = 0;
@@ -388,87 +405,62 @@ void playAllRecordings() {
     return;
   }
 
+  if (playing) {
+    // Prevent re-entry
+    return;
+  }
+  playing = true;
+  mode = Mode::Playing;
+  print_mode();
   // Recording files are saved in the root directory
   File dir = SD.open("/");
 
+  // Wait a little bit longer when playing the first message
+  // wait(750);
+
   while (true) {
     File entry = dir.openNextFile();
-    if (strstr(entry.name(), "greeting")) {
-      entry = dir.openNextFile();
-    }
     if (!entry) {
-      // no more files
+      // no more files - go back to the start
       entry.close();
-      end_Beep();
-      break;
+      dir.close();
+      dir = SD.open("/");
+      continue;
     }
-    // int8_t len = strlen(entry.name()) - 4;
-    //     if (strstr(strlwr(entry.name() + (len - 4)), ".raw")) {
-    //     if (strstr(strlwr(entry.name() + (len - 4)), ".wav")) {
-    //  the lines above throw a warning, so I replace them with this (which is also easier to read):
-    if (strstr(entry.name(), ".wav") || strstr(entry.name(), ".WAV")) {
-      Serial.print("Now playing ");
-      Serial.println(entry.name());
-      // Play a short beep before each message
-      waveform1.amplitude(beep_volume);
-      wait(750);
-      waveform1.amplitude(0);
-      // Play the file
-      playWav1.play(entry.name());
-      mode = Mode::Playing;
-      print_mode();
+    // Skip the greeting and system info files
+    if (strcmp(entry.name(), "greeting.wav") == 0 || strcmp(entry.name(), "System Volume Information") == 0 || strcmp(entry.name(), "mtpindex.dat") == 0) {
+      entry.close();
+      continue;
     }
-    entry.close();
+    // Play a short beep before each message, wait 750ms before/after the beep
+    wait(750);
+    waveform1.amplitude(beep_volume);
+    wait(750);
+    waveform1.amplitude(0);
 
-    //    while (playWav1.isPlaying()) { // strangely enough, this works for playRaw, but it does not work properly for playWav
+    // Check if we are in ready mode - if so the headset was replaced while waiting
+    if (mode == Mode::Ready) {
+      playing = false;
+      return;
+    }
+
+    Serial.print("Now playing ");
+    Serial.println(entry.name());
+    playWav1.play(entry.name());
     while (!playWav1.isStopped()) {  // this works for playWav
       hookSwitch.update();
-      // Button is pressed again
-      if (hookSwitch.risingEdge()) {
+      // Headeset is replaced - stop playing
+      if (hookSwitch.fallingEdge()) {
         playWav1.stop();
         mode = Mode::Ready;
         print_mode();
+        playing = false;
+        entry.close();
         return;
       }
     }
+    entry.close();
   }
-  // All files have been played
-  mode = Mode::Ready;
-  print_mode();
-}
-
-void playLastRecording() {
-  // Find the first available file number
-  uint16_t idx = 0;
-  for (uint16_t i = 0; i < 9999; i++) {
-    // Format the counter as a five-digit number with leading zeroes, followed by file extension
-    snprintf(filename, 11, " %05d.wav", i);
-    // check, if file with index i exists
-    if (!SD.exists(filename)) {
-      idx = i - 1;
-      break;
-    }
-  }
-  // now play file with index idx == last recorded file
-  snprintf(filename, 11, " %05d.wav", idx);
-  Serial.println(filename);
-  playWav1.play(filename);
-  mode = Mode::Playing;
-  print_mode();
-  while (!playWav1.isStopped()) {  // this works for playWav
-    hookSwitch.update();
-    // Button is pressed again
-    if (hookSwitch.risingEdge()) {
-      playWav1.stop();
-      mode = Mode::Ready;
-      print_mode();
-      return;
-    }
-  }
-  // file has been played
-  mode = Mode::Ready;
-  print_mode();
-  end_Beep();
 }
 
 // Retrieve the current time from Teensy built-in RTC
@@ -497,7 +489,7 @@ boolean wait(unsigned int milliseconds) {
   boolean rtnVal = false;
   while (msec <= milliseconds) {
     hookSwitch.update();
-    if (hookSwitch.fallingEdge() || hookSwitch.risingEdge()) {
+    if (hookSwitch.risingEdge() || hookSwitch.fallingEdge()) {
       Serial.println("Hook switch state change");
       mode = Mode::Ready;
       print_mode();
@@ -578,25 +570,6 @@ void writeOutHeader() {  // update WAV header with final filesize/datasize
   Serial.println("header written");
   Serial.print("Subchunk2: ");
   Serial.println(Subchunk2Size);
-}
-
-void end_Beep(void) {
-  waveform1.frequency(523.25);
-  waveform1.amplitude(beep_volume);
-  wait(250);
-  waveform1.amplitude(0);
-  wait(250);
-  waveform1.amplitude(beep_volume);
-  wait(250);
-  waveform1.amplitude(0);
-  wait(250);
-  waveform1.amplitude(beep_volume);
-  wait(250);
-  waveform1.amplitude(0);
-  wait(250);
-  waveform1.amplitude(beep_volume);
-  wait(250);
-  waveform1.amplitude(0);
 }
 
 /**
