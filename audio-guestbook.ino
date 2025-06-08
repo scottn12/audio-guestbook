@@ -45,7 +45,7 @@
 #define noINSTRUMENT_SD_WRITE
 
 // Configurations for how the program will run
-#define DEBUG_MODE true
+#define DEBUG_MODE false
 // Defines if we are in "record" or "playback" mode.
 // If true, we will only record when the headset is lifted.
 // If false, we will only playback when the headset is lifted.
@@ -197,9 +197,7 @@ void loop() {
   switch (mode) {
     case Mode::Ready:
       {
-        // Falling edge occurs when the handset is lifted --> 611 telephone
-        // Note - You may need to swap all risingEdge()/fallingEdge() calls depending on your phone.
-        if (hookSwitch.risingEdge()) {
+        if (headsetLifted()) {
           Serial.println("Handset lifted");
           // If we are in Record Mode then we will enter the state machine and start prompting
           // Otherwise, we are in Playback Mode and will play all recordings
@@ -238,7 +236,7 @@ void loop() {
           // Check whether the handset is replaced
           hookSwitch.update();
           // Handset is replaced
-          if (hookSwitch.fallingEdge()) {
+          if (headsetReplaced()) {
             playWav1.stop();
             mode = Mode::Ready;
             print_mode();
@@ -267,7 +265,7 @@ void loop() {
         }
 
         // Handset is replaced
-        if (hookSwitch.fallingEdge()) {
+        if (headsetReplaced()) {
           // Debug log
           Serial.println("Stopping Recording");
           // Stop recording
@@ -450,7 +448,7 @@ void playAllRecordings() {
     while (!playWav1.isStopped()) {  // this works for playWav
       hookSwitch.update();
       // Headeset is replaced - stop playing
-      if (hookSwitch.fallingEdge()) {
+      if (headsetReplaced()) {
         playWav1.stop();
         mode = Mode::Ready;
         print_mode();
@@ -489,7 +487,7 @@ boolean wait(unsigned int milliseconds) {
   boolean rtnVal = false;
   while (msec <= milliseconds) {
     hookSwitch.update();
-    if (hookSwitch.risingEdge() || hookSwitch.fallingEdge()) {
+    if (headsetLifted() || headsetReplaced()) {
       Serial.println("Hook switch state change");
       mode = Mode::Ready;
       print_mode();
@@ -602,4 +600,13 @@ void print_mode(void) {
       break;
   }
   Serial.println(msg);
+}
+
+// Depending on your phone, you may need to swap risingEdge()/fallingEdge() in these functions
+bool headsetLifted() {
+  return hookSwitch.risingEdge();
+}
+
+bool headsetReplaced() {
+  return hookSwitch.fallingEdge();
 }
