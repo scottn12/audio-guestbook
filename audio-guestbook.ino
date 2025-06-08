@@ -38,13 +38,17 @@
 #define SDCARD_SCK_PIN 14
 // And those used for inputs
 #define HOOK_PIN 0
-#define PLAYBACK_BUTTON_PIN 1
+
+// We won't be using a playback button
+// #define PLAYBACK_BUTTON_PIN 1
 
 #define noINSTRUMENT_SD_WRITE
 
 // Modes the program is running in
-
 #define DEBUG_MODE true
+// Defines if we are in "record" or "playback" mode.
+// If true, we will only record when the headset is lifted.
+// If false, we will only playback when the headset is lifted.
 #define RECORD_MODE true
 
 // GLOBALS
@@ -69,8 +73,7 @@ char filename[15];
 File frec;
 
 // Use long 40ms debounce time on both switches
-Bounce buttonRecord = Bounce(HOOK_PIN, 40);
-Bounce buttonPlay = Bounce(PLAYBACK_BUTTON_PIN, 40);
+Bounce hookSwitch = Bounce(HOOK_PIN, 40);
 
 // Keep track of current state of the device
 enum Mode {
@@ -111,7 +114,7 @@ void setup() {
   print_mode();
   // Configure the input pins
   pinMode(HOOK_PIN, INPUT_PULLUP);
-  pinMode(PLAYBACK_BUTTON_PIN, INPUT_PULLUP);
+  // pinMode(PLAYBACK_BUTTON_PIN, INPUT_PULLUP);
 
   // Audio connections require memory, and the record queue
   // uses this memory to buffer incoming audio.
@@ -171,14 +174,13 @@ void setup() {
 }
 
 void loop() {
-  // First, read the buttons
-  buttonRecord.update();
-  buttonPlay.update();
+  // First, read the input
+  hookSwitch.update();
 
   switch (mode) {
     case Mode::Ready:
       // Falling edge occurs when the handset is lifted --> 611 telephone
-      if (buttonRecord.fallingEdge()) {
+      if (hookSwitch.fallingEdge()) {
         Serial.println("Handset lifted");
         // If we are in Record Mode then we will enter the state machine and start prompting
         // Otherwise, we are in Playback Mode and will play all recordings
@@ -193,32 +195,34 @@ void loop() {
 
     case Mode::Prompting:
       {
+        if (!RECORD_MODE) {
+          // It shouldn't be possible to enter Prompting when RECORD_MODE is true
+          Serial.println("Entered Prompting mode while RECORD_MODE = false");
+          mode = Mode::Ready;
+          print_mode();
+          break;
+        }
+
         // Wait a second for users to put the handset to their ear
         boolean isInterrupted = wait(1000);
         // If there was an input while record we should re-enter
         // the state machine
         if (isInterrupted) {
-          return;
+          break;
         }
+
         // Play the greeting inviting them to record their message
         playWav1.play("greeting.wav");
         // Wait until the  message has finished playing
         while (!playWav1.isStopped()) {
           // Check whether the handset is replaced
-          buttonRecord.update();
-          buttonPlay.update();
+          hookSwitch.update();
           // Handset is replaced
-          if (buttonRecord.risingEdge()) {
+          if (hookSwitch.risingEdge()) {
             playWav1.stop();
             mode = Mode::Ready;
             print_mode();
-            return;
-          }
-          if (buttonPlay.fallingEdge()) {
-            playWav1.stop();
-            // playAllRecordings();
-            // playLastRecording();
-            return;
+            break;
           }
         }
         // Debug message
@@ -234,9 +238,16 @@ void loop() {
 
     case Mode::Recording:
       {
+        if (!RECORD_MODE) {
+          // It shouldn't be possible to enter Recording when RECORD_MODE is false
+          Serial.println("Entered Recording mode while RECORD_MODE = false");
+          mode = Mode::Ready;
+          print_mode();
+          break;
+        }
 
         // Handset is replaced
-        if (buttonRecord.risingEdge()) {
+        if (hookSwitch.risingEdge()) {
           // Debug log
           Serial.println("Stopping Recording");
           // Stop recording
@@ -278,6 +289,14 @@ static uint32_t worstSDwrite, printNext;
 #endif  // defined(INSTRUMENT_SD_WRITE)
 
 void startRecording() {
+  if (!RECORD_MODE) {
+    // It shouldn't be possible to enter Recording when RECORD_MODE is false
+    Serial.println("Entered Recording mode while RECORD_MODE = false");
+    mode = Mode::Ready;
+    print_mode();
+    break;
+  }
+  
   setMTPdeviceChecks(false);  // disable MTP device checks while recording
 #if defined(INSTRUMENT_SD_WRITE)
   worstSDwrite = 0;
@@ -361,6 +380,14 @@ void stopRecording() {
 }
 
 void playAllRecordings() {
+  if (RECORD_MODE) {
+    // It shouldn't be possible to enter playAllRecordings() when RECORD_MODE is true
+    Serial.println("Entered playAllRecordings() mode while RECORD_MODE = true");
+    mode = Mode::Ready;
+    print_mode();
+    return;
+  }
+
   // Recording files are saved in the root directory
   File dir = SD.open("/");
 
@@ -395,11 +422,9 @@ void playAllRecordings() {
 
     //    while (playWav1.isPlaying()) { // strangely enough, this works for playRaw, but it does not work properly for playWav
     while (!playWav1.isStopped()) {  // this works for playWav
-      buttonPlay.update();
-      buttonRecord.update();
+      hookSwitch.update();
       // Button is pressed again
-      //      if(buttonPlay.risingEdge() || buttonRecord.risingEdge()) { // FIX
-      if (buttonPlay.fallingEdge() || buttonRecord.risingEdge()) {
+      if (hookSwitch.risingEdge()) {
         playWav1.stop();
         mode = Mode::Ready;
         print_mode();
@@ -431,11 +456,9 @@ void playLastRecording() {
   mode = Mode::Playing;
   print_mode();
   while (!playWav1.isStopped()) {  // this works for playWav
-    buttonPlay.update();
-    buttonRecord.update();
+    hookSwitch.update();
     // Button is pressed again
-    //      if(buttonPlay.risingEdge() || buttonRecord.risingEdge()) { // FIX
-    if (buttonPlay.fallingEdge() || buttonRecord.risingEdge()) {
+    if (hookSwitch.risingEdge()) {
       playWav1.stop();
       mode = Mode::Ready;
       print_mode();
@@ -473,16 +496,9 @@ boolean wait(unsigned int milliseconds) {
   elapsedMillis msec = 0;
   boolean rtnVal = false;
   while (msec <= milliseconds) {
-    buttonRecord.update();
-    buttonPlay.update();
-    if (buttonRecord.fallingEdge()) {
-      Serial.println("Button (pin 0) Press");
-      mode = Mode::Playing;
-      print_mode();
-      rtnVal = true;
-    }
-    if (buttonRecord.risingEdge()) {
-      Serial.println("Button (pin 0) Release");
+    hookSwitch.update();
+    if (hookSwitch.fallingEdge() || hookSwitch.risingEdge()) {
+      Serial.println("Hook switch state change");
       mode = Mode::Ready;
       print_mode();
       rtnVal = true;
