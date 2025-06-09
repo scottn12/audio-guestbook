@@ -30,6 +30,7 @@
 #include <TimeLib.h>
 #include <MTP_Teensy.h>
 #include "play_sd_wav.h"  // local copy with fixes
+#include "configs.h"
 
 // DEFINES
 // Define pins used by Teensy Audio Shield
@@ -43,15 +44,6 @@
 // #define PLAYBACK_BUTTON_PIN 1
 
 #define noINSTRUMENT_SD_WRITE
-
-// Configurations for how the program will run
-#define DEBUG_MODE false
-// Defines if we are in "record" or "playback" mode.
-// If true, we will only record when the headset is lifted.
-// If false, we will only playback when the headset is lifted.
-#define RECORD_MODE true
-#define OVERALL_VOLUME 0.60
-#define BEEP_VOLUME 0.10f
 
 // GLOBALS
 // Audio initialisation code can be generated using the GUI interface at https://www.pjrc.com/teensy/gui/
@@ -162,8 +154,9 @@ void setup() {
       Serial.println("Unable to access the SD card");
       delay(500);
     }
-  } else
+  } else {
     Serial.println("SD card correctly initialized");
+  }
 
   // mandatory to begin the MTP session.
   MTP.begin();
@@ -413,16 +406,11 @@ void playAllRecordings() {
   // Recording files are saved in the root directory
   File dir = SD.open("/");
 
-  // Wait a little bit longer when playing the first message
-  // wait(750);
-
   while (true) {
     File entry = dir.openNextFile();
     if (!entry) {
       // no more files - go back to the start
-      entry.close();
-      dir.close();
-      dir = SD.open("/");
+      dir.rewindDirectory();
       continue;
     }
     // Skip the greeting and system info files
@@ -439,21 +427,23 @@ void playAllRecordings() {
     // Check if we are in ready mode - if so the headset was replaced while waiting
     if (mode == Mode::Ready) {
       playing = false;
+      dir.close();
       return;
     }
 
     Serial.print("Now playing ");
     Serial.println(entry.name());
     playWav1.play(entry.name());
-    while (!playWav1.isStopped()) {  // this works for playWav
+    while (!playWav1.isStopped()) {
       hookSwitch.update();
       // Headeset is replaced - stop playing
       if (headsetReplaced()) {
         playWav1.stop();
+        entry.close();
+        dir.close();
         mode = Mode::Ready;
         print_mode();
         playing = false;
-        entry.close();
         return;
       }
     }
@@ -578,28 +568,27 @@ void print_mode(void) {
     return;
   }
 
-  String msg = "Mode switched to: ";
+  Serial.print("Mode switched to: ");
   switch (mode) {
     case Mode::Ready:
-      msg += "Ready";
+      Serial.println("Ready");
       break;
     case Mode::Prompting:
-      msg += "Prompting";
+      Serial.println("Prompting");
       break;
     case Mode::Recording:
-      msg += "Recording";
+      Serial.println("Recording");
       break;
     case Mode::Playing:
-      msg += "Playing";
+      Serial.println("Playing");
       break;
     case Mode::Initialising:
-      msg += "Initialising";
+      Serial.println("Initialising");
       break;
     default:
-      msg += "Undefined";
+      Serial.println("Undefined");
       break;
   }
-  Serial.println(msg);
 }
 
 // Depending on your phone, you may need to swap risingEdge()/fallingEdge() in these functions
