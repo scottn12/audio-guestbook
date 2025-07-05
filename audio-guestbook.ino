@@ -110,17 +110,6 @@ void setup() {
   Serial.printf("Audio block set to %d samples\n", AUDIO_BLOCK_SAMPLES);
   print_mode();
 
-  // Display configs
-  Serial.println("Initialised with:");
-  Serial.print("  RECORD_MODE   : ");
-  Serial.println(RECORD_MODE ? "true" : "false");
-  Serial.print("  DEBUG_MODE    : ");
-  Serial.println(DEBUG_MODE ? "true" : "false");
-  Serial.print("  OVERALL_VOLUME: ");
-  Serial.println(OVERALL_VOLUME, 2);
-  Serial.print("  BEEP_VOLUME   : ");
-  Serial.println(BEEP_VOLUME, 2);
-
   // Configure the input pins
   pinMode(HOOK_PIN, INPUT_PULLUP);
   // pinMode(PLAYBACK_BUTTON_PIN, INPUT_PULLUP);
@@ -179,6 +168,17 @@ void setup() {
   // (i.e. saving a new audio recording onto the SD card)
   FsDateTime::setCallback(dateTime);
 
+  // Display configs
+  Serial.println("Initialised with:");
+  Serial.print("  RECORD_MODE   : ");
+  Serial.println(RECORD_MODE ? "true" : "false");
+  Serial.print("  DEBUG_MODE    : ");
+  Serial.println(DEBUG_MODE ? "true" : "false");
+  Serial.print("  OVERALL_VOLUME: ");
+  Serial.println(OVERALL_VOLUME, 2);
+  Serial.print("  BEEP_VOLUME   : ");
+  Serial.println(BEEP_VOLUME, 2);
+
   mode = Mode::Ready;
   print_mode();
 }
@@ -190,7 +190,7 @@ void loop() {
   switch (mode) {
     case Mode::Ready:
       {
-        if (headsetLifted()) {
+        if (handsetLifted()) {
           Serial.println("Handset lifted");
           // If we are in Record Mode then we will enter the state machine and start prompting
           // Otherwise, we are in Playback Mode and will play all recordings
@@ -229,7 +229,7 @@ void loop() {
           // Check whether the handset is replaced
           hookSwitch.update();
           // Handset is replaced
-          if (headsetReplaced()) {
+          if (handsetReplaced()) {
             playWav1.stop();
             mode = Mode::Ready;
             print_mode();
@@ -258,7 +258,7 @@ void loop() {
         }
 
         // Handset is replaced
-        if (headsetReplaced()) {
+        if (handsetReplaced()) {
           // Debug log
           Serial.println("Stopping Recording");
           // Stop recording
@@ -424,7 +424,7 @@ void playAllRecordings() {
     wait(750);
     waveform1.amplitude(0);
 
-    // Check if we are in ready mode - if so the headset was replaced while waiting
+    // Check if we are in ready mode - if so the handset was replaced while waiting
     if (mode == Mode::Ready) {
       playing = false;
       dir.close();
@@ -437,7 +437,7 @@ void playAllRecordings() {
     while (!playWav1.isStopped()) {
       hookSwitch.update();
       // Headeset is replaced - stop playing
-      if (headsetReplaced()) {
+      if (handsetReplaced()) {
         playWav1.stop();
         entry.close();
         dir.close();
@@ -477,7 +477,7 @@ boolean wait(unsigned int milliseconds) {
   boolean rtnVal = false;
   while (msec <= milliseconds) {
     hookSwitch.update();
-    if (headsetLifted() || headsetReplaced()) {
+    if (handsetLifted() || handsetReplaced()) {
       Serial.println("Hook switch state change");
       mode = Mode::Ready;
       print_mode();
@@ -592,10 +592,10 @@ void print_mode(void) {
 }
 
 // Depending on your phone, you may need to swap risingEdge()/fallingEdge() in these functions
-bool headsetLifted() {
+bool handsetLifted() {
   return hookSwitch.risingEdge();
 }
 
-bool headsetReplaced() {
+bool handsetReplaced() {
   return hookSwitch.fallingEdge();
 }
