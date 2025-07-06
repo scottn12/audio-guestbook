@@ -215,7 +215,7 @@ void loop() {
         }
 
         // Wait a second for users to put the handset to their ear
-        boolean isInterrupted = wait(1000);
+        boolean isInterrupted = waitBeforePrompt(1000);
         // If there was an input while record we should re-enter
         // the state machine
         if (isInterrupted) {
@@ -471,14 +471,36 @@ void dateTime(uint16_t *date, uint16_t *time, uint8_t *ms10) {
 
 // Non-blocking delay, which pauses execution of main program logic,
 // but while still listening for input
-// Returns true if an input was recorded while waiting, false otherwise
-boolean wait(unsigned int milliseconds) {
+void wait(unsigned int milliseconds) {
   elapsedMillis msec = 0;
-  boolean rtnVal = false;
   while (msec <= milliseconds) {
     hookSwitch.update();
     if (handsetLifted() || handsetReplaced()) {
       Serial.println("Hook switch state change");
+      mode = Mode::Ready;
+      print_mode();
+    }
+  }
+}
+
+// Non-blocking delay, which pauses execution of main program logic,
+// but while still listening for input.
+// This function will also return if it was interrupted.
+boolean waitBeforePrompt(unsigned int milliseconds) {
+  elapsedMillis msec = 0;
+  boolean rtnVal = false;
+  while (msec <= milliseconds) {
+    hookSwitch.update();
+    if (handsetLifted()) {
+      // If we end up in a lifted state we should go back to prompting (but still re-enter state machine)
+      Serial.println("Hook switch state change: Lifted");
+      mode = Mode::Prompting;
+      print_mode();
+      rtnVal = true;
+    }
+    if (handsetReplaced()) {
+      // If we end up in a lifted state we should go back to the ready state
+      Serial.println("Hook switch state change: Replaced");
       mode = Mode::Ready;
       print_mode();
       rtnVal = true;
