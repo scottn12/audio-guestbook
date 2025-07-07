@@ -157,8 +157,7 @@ void setup() {
   MTPcheckInterval = MTP.storage()->get_DeltaDeviceCheckTimeMS();
 
   // Value in dB
-  //  sgtl5000_1.micGain(15);
-  sgtl5000_1.micGain(5);  // much lower gain is required for the AOM5024 electret capsule
+  sgtl5000_1.micGain(5);
 
   // Synchronise the Time object used in the program code with the RTC time provider.
   // See https://github.com/PaulStoffregen/Time
@@ -238,10 +237,11 @@ void loop() {
         }
         // Debug message
         Serial.println("Starting Recording");
-        // Play the tone sound effect
-        waveform1.begin(beep_volume, 440, WAVEFORM_SINE);
-        wait(1250);
-        waveform1.amplitude(0);
+        // // Play the tone sound effect
+        // DISABLED, beep is in greeting.wav
+        // waveform1.begin(beep_volume, 440, WAVEFORM_SINE);
+        // wait(1250);
+        // waveform1.amplitude(0);
         // Start the recording function
         startRecording();
         break;
