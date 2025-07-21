@@ -31,6 +31,8 @@
 #include <MTP_Teensy.h>
 #include "play_sd_wav.h"  // local copy with fixes
 #include "configs.h"
+#include <vector>
+#include <algorithm>
 
 // DEFINES
 // Define pins used by Teensy Audio Shield
@@ -99,6 +101,30 @@ byte byte1, byte2, byte3, byte4;
 
 // Manage playback
 bool playing = false;
+std::vector<String> playbackFiles;
+unsigned int numPlaybackFiles;
+unsigned int currentPlaybackFile = 0;
+
+// Get sorted list of playback files
+std::vector<String> getSortedPlaybackFiles() {
+  std::vector<String> filenames;
+  File root = SD.open("/");
+  while (true) {
+    File entry = root.openNextFile();
+    if (!entry) break;
+
+    String name = entry.name();
+    entry.close();
+
+    if (name.endsWith(".wav") && name != "greeting.wav" && name != "mtpindex.dat" && name != "System Volume Information") {
+      filenames.push_back(name);
+    }
+  }
+
+  // Sort alphabetically (which also works numerically due to leading zeroes)
+  std::sort(filenames.begin(), filenames.end());
+  return filenames;
+}
 
 void setup() {
 
@@ -180,6 +206,14 @@ void setup() {
 
   mode = Mode::Ready;
   print_mode();
+
+  if (!RECORD_MODE) {
+    // Recording files are saved in the root directory
+    // If we are in playback mode, we open the directory for playback
+    // Open globally so we don't lose our spot
+    playbackFiles = getSortedPlaybackFiles();
+    numPlaybackFiles = playbackFiles.size();
+  }
 }
 
 void loop() {
@@ -314,7 +348,7 @@ void startRecording() {
   //  for (uint8_t i=0; i<9999; i++) { // BUGFIX uint8_t overflows if it reaches 255
   for (uint16_t i = 0; i < 9999; i++) {
     // Format the counter as a five-digit number with leading zeroes, followed by file extension
-    snprintf(filename, 11, " %05d.wav", i);
+    snprintf(filename, 11, "%05d.wav", i);
     // Create if does not exist, do not open existing, write, sync after write
     if (!SD.exists(filename)) {
       break;
@@ -403,51 +437,44 @@ void playAllRecordings() {
   playing = true;
   mode = Mode::Playing;
   print_mode();
-  // Recording files are saved in the root directory
-  File dir = SD.open("/");
 
   while (true) {
-    File entry = dir.openNextFile();
-    if (!entry) {
-      // no more files - go back to the start
-      dir.rewindDirectory();
-      continue;
+    if (currentPlaybackFile == numPlaybackFiles) {
+      // Go back to the start!
+      currentPlaybackFile = 0;
     }
-    // Skip the greeting and system info files
-    if (strcmp(entry.name(), "greeting.wav") == 0 || strcmp(entry.name(), "System Volume Information") == 0 || strcmp(entry.name(), "mtpindex.dat") == 0) {
-      entry.close();
-      continue;
-    }
+
+    const char* currentPlaybackFilename = playbackFiles[currentPlaybackFile].c_str();
+
     // Play a short beep before each message, wait 750ms before/after the beep
-    wait(750);
+    waitForPlaybackBeep(750);
     waveform1.amplitude(beep_volume);
-    wait(750);
+    waitForPlaybackBeep(750);
     waveform1.amplitude(0);
 
     // Check if we are in ready mode - if so the handset was replaced while waiting
     if (mode == Mode::Ready) {
       playing = false;
-      dir.close();
+      currentPlaybackFile++;
       return;
     }
 
     Serial.print("Now playing ");
-    Serial.println(entry.name());
-    playWav1.play(entry.name());
+    Serial.println(currentPlaybackFilename);
+    playWav1.play(currentPlaybackFilename);
     while (!playWav1.isStopped()) {
       hookSwitch.update();
       // Headeset is replaced - stop playing
       if (handsetReplaced()) {
         playWav1.stop();
-        entry.close();
-        dir.close();
+        currentPlaybackFile++;
         mode = Mode::Ready;
         print_mode();
         playing = false;
         return;
       }
     }
-    entry.close();
+    currentPlaybackFile++;
   }
 }
 
@@ -485,7 +512,7 @@ void wait(unsigned int milliseconds) {
 
 // Non-blocking delay, which pauses execution of main program logic,
 // but while still listening for input.
-// This function will also return if it was interrupted.
+// This function will also return true if it was interrupted.
 boolean waitBeforePrompt(unsigned int milliseconds) {
   elapsedMillis msec = 0;
   boolean rtnVal = false;
@@ -507,6 +534,28 @@ boolean waitBeforePrompt(unsigned int milliseconds) {
     }
   }
   return rtnVal;
+}
+
+// Non-blocking delay, which pauses execution of main program logic,
+// but while still listening for input.
+// Used during playback
+void waitForPlaybackBeep(unsigned int milliseconds) {
+  elapsedMillis msec = 0;
+  while (msec <= milliseconds) {
+    hookSwitch.update();
+    if (handsetLifted()) {
+      // If we end up in a lifted state we should go back to playing (but still re-enter state machine)
+      Serial.println("Hook switch state change: Lifted");
+      mode = Mode::Playing;
+      print_mode();
+    }
+    if (handsetReplaced()) {
+      // If we end up in a lifted state we should go back to the ready state
+      Serial.println("Hook switch state change: Replaced");
+      mode = Mode::Ready;
+      print_mode();
+    }
+  }
 }
 
 void writeOutHeader() {  // update WAV header with final filesize/datasize
