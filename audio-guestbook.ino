@@ -178,7 +178,7 @@ void setup() {
 
   // Add SD Card
   //    MTP.addFilesystem(SD, "SD Card");
-  MTP.addFilesystem(SD, "N&S Audio Guestbook");  // choose a nice name for the SD card volume to appear in your file explorer
+  MTP.addFilesystem(SD, "Audio Guestbook");  // choose a nice name for the SD card volume to appear in your file explorer
   Serial.println("Added SD card via MTP");
   MTPcheckInterval = MTP.storage()->get_DeltaDeviceCheckTimeMS();
 
