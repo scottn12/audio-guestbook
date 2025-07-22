@@ -271,11 +271,11 @@ void loop() {
         }
         // Debug message
         Serial.println("Starting Recording");
-        // // Play the tone sound effect
-        // DISABLED, beep is in greeting.wav
-        // waveform1.begin(beep_volume, 440, WAVEFORM_SINE);
-        // wait(1250);
-        // waveform1.amplitude(0);
+        // Play the tone sound effect
+        waveform1.begin(beep_volume, 440, WAVEFORM_SINE);
+        // TODO: Make sure we check for state change in this wait
+        wait(1250);
+        waveform1.amplitude(0);
         // Start the recording function
         startRecording();
         break;
