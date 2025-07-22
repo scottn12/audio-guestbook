@@ -444,7 +444,7 @@ void playAllRecordings() {
       currentPlaybackFile = 0;
     }
 
-    const char* currentPlaybackFilename = playbackFiles[currentPlaybackFile].c_str();
+    const char *currentPlaybackFilename = playbackFiles[currentPlaybackFile].c_str();
 
     // Play a short beep before each message, wait 750ms before/after the beep
     waitForPlaybackBeep(750);
