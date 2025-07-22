@@ -178,7 +178,7 @@ void setup() {
 
   // Add SD Card
   //    MTP.addFilesystem(SD, "SD Card");
-  MTP.addFilesystem(SD, "N&S Audio Guestbook");  // choose a nice name for the SD card volume to appear in your file explorer
+  MTP.addFilesystem(SD, "J&A Audio Guestbook");  // choose a nice name for the SD card volume to appear in your file explorer
   Serial.println("Added SD card via MTP");
   MTPcheckInterval = MTP.storage()->get_DeltaDeviceCheckTimeMS();
 
@@ -444,7 +444,7 @@ void playAllRecordings() {
       currentPlaybackFile = 0;
     }
 
-    const char* currentPlaybackFilename = playbackFiles[currentPlaybackFile].c_str();
+    const char *currentPlaybackFilename = playbackFiles[currentPlaybackFile].c_str();
 
     // Play a short beep before each message, wait 750ms before/after the beep
     waitForPlaybackBeep(750);
