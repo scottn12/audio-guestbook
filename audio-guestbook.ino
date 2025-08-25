@@ -664,9 +664,9 @@ void print_mode(void) {
 
 // Depending on your phone, you may need to swap risingEdge()/fallingEdge() in these functions
 bool handsetLifted() {
-  return hookSwitch.risingEdge();
+  return hookSwitch.fallingEdge();
 }
 
 bool handsetReplaced() {
-  return hookSwitch.fallingEdge();
+  return hookSwitch.risingEdge();
 }
